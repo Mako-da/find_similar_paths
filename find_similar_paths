@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+
+usage() {
+  echo "Usage: $0 [-h|--help] <base_dir> [threshold] [format_string]
+Filter paths based on the similarity of their subdirectory and file name components using Jaccard similarity.
+
+  <base_dir>      The base directory to search for paths
+  [threshold]     The Jaccard similarity threshold (default: 0.7)
+  [format_string] The format string for the output (default: '{path}')
+  -h, --help      Show this help message and exit"
+}
+
+# list_markdown_files function
+# Given a base directory, this function finds all markdown files in the directory and its subdirectories
+# and outputs the path to each file.
+list_markdown_files(){
+    base_dir="$1";
+    find "$base_dir" -type f -name '*.md';
+}
+
+# filter_similar_paths is a shell function that filters paths with a Jaccard similarity above a certain threshold
+# The function takes two arguments:
+#  - format_string: A Python f-string used to format the output.
+#    The default value is '{path}', which outputs the full path of each filtered path.
+#    The f-string can include the values '{path}', '{dir}', and '{basename}', which refer to the full path, the first subdirectory of the path,
+#    and the file name without the '.md' extension, respectively.
+#  - format_string: A Python f-string used to format the output. The default value is '{path}', which outputs the full path of each filtered path.
+#  - threshold: The Jaccard similarity threshold, which is a floating-point number between 0 and 1. The default value is 0.7.
+#
+# The function works by executing a Python3 script that performs the Jaccard similarity calculation and outputs the filtered paths.
+# The Python3 script takes the `threshold` and `format_string` arguments and uses them to filter and format the output.
+# The paths are read from standard input in the Python script, which allows the function to be used as part of a pipeline.
+filter_similar_paths() {
+  format_string=${1:-'{path}'}
+  threshold=${2:-0.7}
+  python3 -c "
+import sys
+
+def jaccard_similarity(x, y):
+    x_set = set(x)
+    y_set = set(y)
+    intersection = x_set & y_set
+    union = x_set | y_set
+    return len(intersection) / len(union)
+
+threshold = float('$threshold')
+format_string = '$format_string'
+for path in sys.stdin:
+    path = path.strip()
+    dir = path.split('/')[-2]
+    basename = path.split('/')[-1].split('.md')[0]
+    if dir == basename:
+        continue
+    if jaccard_similarity(dir, basename) >= threshold:
+        print(format_string.format(path=path, dir=dir, basename=basename))
+"
+}
+
+# Parse the command line arguments
+parse_arguments() {
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -h|--help)
+        echo "Usage: $0 [-h|--help] <base_dir> [threshold] [format_string]"
+        echo "Filter paths with a Jaccard similarity above a certain threshold"
+        echo ""
+        echo "  <base_dir>      The base directory to search for paths"
+        echo "  [threshold]     The Jaccard similarity threshold (default: 0.7)"
+        echo "  [format_string] The format string for the output (default: '{path}')"
+        echo "  -h, --help      Show this help message and exit"
+        exit 0
+        ;;
+      *)
+        base_dir="$1"
+        threshold=${2:-0.7}
+        format_string=${3:-'{path}'}
+        shift
+        break
+        ;;
+    esac
+    shift
+  done
+}
+
+main() {
+    base_dir="$1"
+    threshold="$2"
+    format_string="$3"
+  list_markdown_files "$base_dir" | filter_similar_paths "$format_string" "$threshold"
+}
+
+# shellcheck disable=3028
+if [ "$0" = "${BASH_SOURCE:-$0}" ]; then
+  parse_arguments "$@"
+  main "$base_dir" "$threshold" "$format_string"
+fi
